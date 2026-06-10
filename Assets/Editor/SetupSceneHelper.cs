@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
-using UnityEditor.Animations;
 using Unity.Cinemachine;
 using System.IO;
 
@@ -9,8 +8,7 @@ namespace ProjectAdventure.Editor
 {
     public static class SetupSceneHelper
     {
-        private const string LuchadorSpritesFolder = "Assets/Luchador Asset Pack by TikiTed/Sprites";
-        private const string LuchadorAnimFolder = "Assets/Luchador Asset Pack by TikiTed/Animations";
+        private const string TopDownFolder = "Assets/11.Sprites/TopDownCharacter/Character";
 
         [MenuItem("Tools/Setup Player and Camera")]
         public static void SetupPlayerAndCamera()
@@ -25,90 +23,44 @@ namespace ProjectAdventure.Editor
                 activeScene = EditorSceneManager.OpenScene(targetScenePath, OpenSceneMode.Single);
             }
 
-            // 2. 에셋 팩 스프라이트 임포터 강제 보정 (Point Filter, 16 PPU)
-            string[] sheetFiles = {
-                "luchador-walk-down.png",
-                "luchador-walk-down-left.png",
-                "luchador-walk-left.png",
-                "luchador-walk-up-left.png",
-                "luchador-walk-up.png",
-                "luchador-walk-up-right.png",
-                "luchador-walk-right.png",
-                "luchador-walk-down-right.png",
-                "luchador-idle-right.png"
+            // 2. 캐릭터 스프라이트 시트들 자동 슬라이스 (가로 32px 격자)
+            string[] characterSheets = {
+                "Character_Down.png",
+                "Character_DownLeft.png",
+                "Character_DownRight.png",
+                "Character_Left.png",
+                "Character_Right.png",
+                "Character_Up.png",
+                "Character_UpLeft.png",
+                "Character_UpRight.png",
+                "Character_SlashDownLeft.png",
+                "Character_SlashDownRight.png",
+                "Character_SlashUpLeft.png",
+                "Character_SlashUpRight.png",
+                "Character_RollDown.png",
+                "Character_RollDownLeft.png",
+                "Character_RollDownRight.png",
+                "Character_RollLeft.png",
+                "Character_RollRight.png",
+                "Character_RollUp.png",
+                "Character_RollUpLeft.png",
+                "Character_RollUpRight.png"
             };
 
-            foreach (string file in sheetFiles)
+            foreach (string file in characterSheets)
             {
-                string path = $"{LuchadorSpritesFolder}/{file}";
-                if (!File.Exists(path)) continue;
-
-                var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-                if (importer != null)
+                string path = $"{TopDownFolder}/{file}";
+                if (!File.Exists(path))
                 {
-                    importer.textureType = TextureImporterType.Sprite;
-                    importer.spriteImportMode = SpriteImportMode.Multiple;
-                    importer.spritePixelsToUnits = 16;
-                    importer.filterMode = FilterMode.Point;
-                    importer.textureCompression = TextureImporterCompression.Uncompressed;
-                    importer.alphaIsTransparency = true;
-                    importer.SaveAndReimport();
+                    Debug.LogWarning($"[Setup] 에셋 파일을 찾을 수 없습니다: {path}");
+                    continue;
                 }
+
+                ConfigureAndSliceSprite(path, 32, 32);
             }
             AssetDatabase.Refresh();
 
-            // 3. 종합 Animator Controller 자동 빌드
-            string controllerPath = $"{LuchadorAnimFolder}/Luchador_Controller.controller";
-            AnimatorController controller = null;
-
-            if (File.Exists(controllerPath))
-            {
-                controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(controllerPath);
-            }
-
-            if (controller == null)
-            {
-                controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
-            }
-
-            // 기존 상태 머신 클리어 후 재생성
-            var rootStateMachine = controller.layers[0].stateMachine;
-            var states = rootStateMachine.states;
-            for (int i = states.Length - 1; i >= 0; i--)
-            {
-                rootStateMachine.RemoveState(states[i].state);
-            }
-
-            // 모든 에셋 애니메이션 클립 매핑 등록
-            string[] clipNames = {
-                "Idle", "Walk_Down", "Walk_Down_Left", "Walk_Down_Right",
-                "Walk_Left", "Walk_Right", "Walk_Up", "Walk_Up_Left", "Walk_Up_Right",
-                "Attack_1", "Attack_2", "Attack_3", "Death", "Hit", "Look", "Run"
-            };
-
-            foreach (string clipName in clipNames)
-            {
-                string clipPath = $"{LuchadorAnimFolder}/{clipName}.anim";
-                AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
-                if (clip != null)
-                {
-                    var state = rootStateMachine.AddState(clipName);
-                    state.motion = clip;
-                    // 디폴트 대기 상태로 설정
-                    if (clipName == "Idle")
-                    {
-                        rootStateMachine.defaultState = state;
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"[Setup] 애니메이션 클립을 찾을 수 없습니다: {clipPath}");
-                }
-            }
-            EditorUtility.SetDirty(controller);
-            AssetDatabase.SaveAssets();
-
-            // 4. 스폰 높이 감지
+            // 3. 스폰 높이 감지
             Vector3 spawnPos = Vector3.zero;
             var terrain = Terrain.activeTerrain;
             if (terrain != null)
@@ -126,14 +78,13 @@ namespace ProjectAdventure.Editor
 
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Setup Luchador Player with Animator");
+            Undo.SetCurrentGroupName("Setup TopDownCharacter Player");
 
-            // 5. Player 오브젝트 생성/탐색
+            // 4. Player 오브젝트 생성/탐색
             var playerObj = GameObject.Find("Player") ?? new GameObject("Player");
             Undo.RegisterCreatedObjectUndo(playerObj, "Create Player");
             playerObj.transform.position = spawnPos;
 
-            // CharacterController 안전한 널체크 및 할당 (유니티 Fake Null 방지)
             var cc = playerObj.GetComponent<CharacterController>();
             if (cc == null)
             {
@@ -143,14 +94,13 @@ namespace ProjectAdventure.Editor
             cc.radius = 0.4f; 
             cc.height = 1.8f;
 
-            // PlayerController 안전한 널체크 및 할당
             var pc = playerObj.GetComponent<PlayerController>();
             if (pc == null)
             {
                 pc = playerObj.AddComponent<PlayerController>();
             }
 
-            // 6. Visual 자식 오브젝트 생성/탐색
+            // 5. Visual 자식 오브젝트 생성/탐색
             var visualT = playerObj.transform.Find("Visual");
             GameObject visual;
             if (visualT == null)
@@ -167,13 +117,12 @@ namespace ProjectAdventure.Editor
                 visual.transform.localScale = new Vector3(3f, 3f, 3f);
             }
 
-            // Animator 컴포넌트 재사용 및 바인딩 (유니티 Fake Null 방지)
-            var anim = visual.GetComponent<Animator>();
-            if (anim == null)
+            // Animator가 있으면 제거
+            var oldAnim = visual.GetComponent<Animator>();
+            if (oldAnim != null)
             {
-                anim = visual.AddComponent<Animator>();
+                Object.DestroyImmediate(oldAnim);
             }
-            anim.runtimeAnimatorController = controller;
 
             // SpriteRenderer 세팅
             var sr = visual.GetComponent<SpriteRenderer>();
@@ -184,23 +133,68 @@ namespace ProjectAdventure.Editor
             sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             sr.receiveShadows = true;
 
-            // 기본 정면 스프라이트 강제 세팅 (최초 비주얼용)
-            Sprite[] spritesS = LoadSpritesFromSheet($"{LuchadorSpritesFolder}/luchador-walk-down.png");
-            if (spritesS != null && spritesS.Length > 0)
-            {
-                sr.sprite = spritesS[0];
-            }
-
             // 빌보드 컴포넌트
             if (visual.GetComponent<Billboard>() == null)
             {
                 visual.AddComponent<Billboard>();
             }
 
-            // PlayerController 직렬화 레퍼런스 주입
+            // 6. 슬라이스된 각 스프라이트 배열 로드
+            Sprite[] sprWalkS  = LoadSpritesFromSheet($"{TopDownFolder}/Character_Down.png");
+            Sprite[] sprWalkSE = LoadSpritesFromSheet($"{TopDownFolder}/Character_DownRight.png");
+            Sprite[] sprWalkE  = LoadSpritesFromSheet($"{TopDownFolder}/Character_Right.png");
+            Sprite[] sprWalkNE = LoadSpritesFromSheet($"{TopDownFolder}/Character_UpRight.png");
+            Sprite[] sprWalkN  = LoadSpritesFromSheet($"{TopDownFolder}/Character_Up.png");
+            Sprite[] sprWalkNW = LoadSpritesFromSheet($"{TopDownFolder}/Character_UpLeft.png");
+            Sprite[] sprWalkW  = LoadSpritesFromSheet($"{TopDownFolder}/Character_Left.png");
+            Sprite[] sprWalkSW = LoadSpritesFromSheet($"{TopDownFolder}/Character_DownLeft.png");
+
+            Sprite[] sprRollS  = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollDown.png");
+            Sprite[] sprRollSE = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollDownRight.png");
+            Sprite[] sprRollE  = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollRight.png");
+            Sprite[] sprRollNE = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollUpRight.png");
+            Sprite[] sprRollN  = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollUp.png");
+            Sprite[] sprRollNW = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollUpLeft.png");
+            Sprite[] sprRollW  = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollLeft.png");
+            Sprite[] sprRollSW = LoadSpritesFromSheet($"{TopDownFolder}/Character_RollDownLeft.png");
+
+            Sprite[] sprSlashDL = LoadSpritesFromSheet($"{TopDownFolder}/Character_SlashDownLeft.png");
+            Sprite[] sprSlashDR = LoadSpritesFromSheet($"{TopDownFolder}/Character_SlashDownRight.png");
+            Sprite[] sprSlashUL = LoadSpritesFromSheet($"{TopDownFolder}/Character_SlashUpLeft.png");
+            Sprite[] sprSlashUR = LoadSpritesFromSheet($"{TopDownFolder}/Character_SlashUpRight.png");
+
+            // 기본 스프라이트 세팅
+            if (sprWalkS != null && sprWalkS.Length > 0)
+            {
+                sr.sprite = sprWalkS[0];
+            }
+
+            // PlayerController 직렬화 매핑 바인딩
             var so = new SerializedObject(pc);
             so.FindProperty("_spriteRenderer").objectReferenceValue = sr;
-            so.FindProperty("_animator").objectReferenceValue = anim;
+            
+            SetSerializedSpriteArray(so.FindProperty("_animWalkS"), sprWalkS);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkSE"), sprWalkSE);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkE"), sprWalkE);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkNE"), sprWalkNE);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkN"), sprWalkN);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkNW"), sprWalkNW);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkW"), sprWalkW);
+            SetSerializedSpriteArray(so.FindProperty("_animWalkSW"), sprWalkSW);
+
+            SetSerializedSpriteArray(so.FindProperty("_animRollS"), sprRollS);
+            SetSerializedSpriteArray(so.FindProperty("_animRollSE"), sprRollSE);
+            SetSerializedSpriteArray(so.FindProperty("_animRollE"), sprRollE);
+            SetSerializedSpriteArray(so.FindProperty("_animRollNE"), sprRollNE);
+            SetSerializedSpriteArray(so.FindProperty("_animRollN"), sprRollN);
+            SetSerializedSpriteArray(so.FindProperty("_animRollNW"), sprRollNW);
+            SetSerializedSpriteArray(so.FindProperty("_animRollW"), sprRollW);
+            SetSerializedSpriteArray(so.FindProperty("_animRollSW"), sprRollSW);
+
+            SetSerializedSpriteArray(so.FindProperty("_animSlashDownLeft"), sprSlashDL);
+            SetSerializedSpriteArray(so.FindProperty("_animSlashDownRight"), sprSlashDR);
+            SetSerializedSpriteArray(so.FindProperty("_animSlashUpLeft"), sprSlashUL);
+            SetSerializedSpriteArray(so.FindProperty("_animSlashUpRight"), sprSlashUR);
             so.ApplyModifiedProperties();
 
             // 7. Cinemachine 카메라 추적 연동
@@ -236,8 +230,38 @@ namespace ProjectAdventure.Editor
             EditorSceneManager.SaveScene(activeScene);
             Undo.CollapseUndoOperations(undoGroup);
 
-            Debug.Log("[Setup] ✅ 종합 Animator Controller 빌드 및 루차도르 8방향 셋업이 완료되었습니다!");
-            EditorUtility.DisplayDialog("완료", "루차도르 종합 애니메이터 8방향 셋업 완료!", "OK");
+            Debug.Log("[Setup] ✅ TopDownCharacter 8방향 걷기, 점프구르기 및 4방향 베기 셋업이 완료되었습니다!");
+            EditorUtility.DisplayDialog("완료", "TopDownCharacter 8방향 점프 셋업 완료!", "OK");
+        }
+
+        private static void ConfigureAndSliceSprite(string relativePath, int frameWidth, int frameHeight)
+        {
+            var importer = AssetImporter.GetAtPath(relativePath) as TextureImporter;
+            if (importer == null) return;
+
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Multiple;
+            importer.spritePixelsToUnits = 32; // 32x32 크기이므로 32 PPU
+            importer.filterMode = FilterMode.Point;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.alphaIsTransparency = true;
+
+            string fileName = Path.GetFileNameWithoutExtension(relativePath);
+            int width = fileName.Contains("Slash") ? 160 : 128; // Slash는 5프레임(160px), 그 외는 4프레임(128px)
+            int frameCount = width / frameWidth;
+
+            var metas = new System.Collections.Generic.List<SpriteMetaData>();
+            for (int i = 0; i < frameCount; i++)
+            {
+                var meta = new SpriteMetaData();
+                meta.rect = new Rect(i * frameWidth, 0, frameWidth, frameHeight);
+                meta.name = $"{fileName}_{i}";
+                meta.alignment = (int)SpriteAlignment.Center;
+                metas.Add(meta);
+            }
+
+            importer.spritesheet = metas.ToArray();
+            importer.SaveAndReimport();
         }
 
         private static Sprite[] LoadSpritesFromSheet(string relativePath)
@@ -253,6 +277,17 @@ namespace ProjectAdventure.Editor
             }
             sprites.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.Ordinal));
             return sprites.ToArray();
+        }
+
+        private static void SetSerializedSpriteArray(SerializedProperty prop, Sprite[] sprites)
+        {
+            prop.ClearArray();
+            if (sprites == null) return;
+            prop.arraySize = sprites.Length;
+            for (int i = 0; i < sprites.Length; i++)
+            {
+                prop.GetArrayElementAtIndex(i).objectReferenceValue = sprites[i];
+            }
         }
     }
 }
