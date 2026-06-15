@@ -13,36 +13,13 @@ namespace ProjectAdventure
 
         [Header("Visual References")]
         [SerializeField] private SpriteRenderer _spriteRenderer;
+        [SerializeField] private Animator _animator;
 
-        [Header("8방향 걷기 애니메이션 (4프레임)")]
-        [SerializeField] private Sprite[] _animWalkS;
-        [SerializeField] private Sprite[] _animWalkSE;
-        [SerializeField] private Sprite[] _animWalkE;
-        [SerializeField] private Sprite[] _animWalkNE;
-        [SerializeField] private Sprite[] _animWalkN;
-        [SerializeField] private Sprite[] _animWalkNW;
-        [SerializeField] private Sprite[] _animWalkW;
-        [SerializeField] private Sprite[] _animWalkSW;
+        [Header("Weapon Settings")]
+        [SerializeField] private SpriteRenderer _weaponSpriteRenderer;
 
-        [Header("8방향 점프/구르기 애니메이션 (4프레임)")]
-        [SerializeField] private Sprite[] _animRollS;
-        [SerializeField] private Sprite[] _animRollSE;
-        [SerializeField] private Sprite[] _animRollE;
-        [SerializeField] private Sprite[] _animRollNE;
-        [SerializeField] private Sprite[] _animRollN;
-        [SerializeField] private Sprite[] _animRollNW;
-        [SerializeField] private Sprite[] _animRollW;
-        [SerializeField] private Sprite[] _animRollSW;
-
-        [Header("4방향 공격(Slash) 애니메이션 (5프레임)")]
-        [SerializeField] private Sprite[] _animSlashDownLeft;
-        [SerializeField] private Sprite[] _animSlashDownRight;
-        [SerializeField] private Sprite[] _animSlashUpLeft;
-        [SerializeField] private Sprite[] _animSlashUpRight;
-
-        [Header("애니메이션 속도 설정")]
-        [SerializeField] private float _walkFrameRate = 0.12f;
-        [SerializeField] private float _attackFrameRate = 0.08f;
+        [Header("Attack Settings")]
+        [SerializeField] private float _attackDuration = 0.4f;  // 공격 모션이 끝나는 시간 (Slash 애니메이션 시간)
 
         private CharacterController _characterController;
         private InputAction _moveAction;
@@ -51,14 +28,44 @@ namespace ProjectAdventure
         private Vector2 _moveInput;
         private Vector3 _velocity;
         
-        // 애니메이션 재생 상태 변수
+        // 애니메이션 및 물리 상태 제어 변수
         private int _lastDirectionIndex = 0; // 0:S, 1:SE, 2:E, 3:NE, 4:N, 5:NW, 6:W, 7:SW
         private bool _isAttacking;
         private float _attackEndTime;
-        
-        private float _animationTimer;
-        private int _currentFrameIndex;
         private bool _lastHorizontalFacingLeft = false; // 기본값 우측
+
+        // 공격 방향 보정을 위한 임시 백업
+        private int _preAttackDirectionIndex;
+
+        // Animator State Hashes for performance optimization
+        private static readonly int HashSlashDownRight = Animator.StringToHash("Character_SlashDownRight");
+        private static readonly int HashSlashDownLeft = Animator.StringToHash("Character_SlashDownLeft");
+        private static readonly int HashSlashUpLeft = Animator.StringToHash("Character_SlashUpLeft");
+        private static readonly int HashSlashUpRight = Animator.StringToHash("Character_SlashUpRight");
+
+        private static readonly int HashRollDown = Animator.StringToHash("Character_RollDown");
+        private static readonly int HashRollDownRight = Animator.StringToHash("Character_RollDownRight");
+        private static readonly int HashRollRight = Animator.StringToHash("Character_RollRight");
+        private static readonly int HashRollUpRight = Animator.StringToHash("Character_RollUpRight");
+        private static readonly int HashRollUp = Animator.StringToHash("Character_RollUp");
+        private static readonly int HashRollUpLeft = Animator.StringToHash("Character_RollUpLeft");
+        private static readonly int HashRollLeft = Animator.StringToHash("Character_RollLeft");
+        private static readonly int HashRollDownLeft = Animator.StringToHash("Character_RollDownLeft");
+
+        private static readonly int HashWalkDown = Animator.StringToHash("Character_Down");
+        private static readonly int HashWalkDownRight = Animator.StringToHash("Character_DownRight");
+        private static readonly int HashWalkRight = Animator.StringToHash("Character_Right");
+        private static readonly int HashWalkUpRight = Animator.StringToHash("Character_UpRight");
+        private static readonly int HashWalkUp = Animator.StringToHash("Character_Up");
+        private static readonly int HashWalkUpLeft = Animator.StringToHash("Character_UpLeft");
+        private static readonly int HashWalkLeft = Animator.StringToHash("Character_Left");
+        private static readonly int HashWalkDownLeft = Animator.StringToHash("Character_DownLeft");
+
+
+        // 애니메이션 이벤트에서 호출됩니다. (현재는 애니메이션 클립 자체 키프레임을 사용하므로 비워둡니다)
+        public void SetWeaponFrame(int frameIndex)
+        {
+        }
 
         public Vector2 MoveInput => _moveInput;
         public float CurrentSpeed => _characterController != null ? _characterController.velocity.magnitude : 0f;
@@ -67,62 +74,69 @@ namespace ProjectAdventure
         {
             _characterController = GetComponent<CharacterController>();
 
+            if (_animator == null)
+            {
+                _animator = GetComponentInChildren<Animator>();
+            }
             if (_spriteRenderer == null)
             {
                 _spriteRenderer = GetComponentInChildren<SpriteRenderer>();
             }
 
-            // 이동 입력 바인딩
-            _moveAction = new InputAction("Move");
-            _moveAction.AddCompositeBinding("2DVector")
-                .With("Up",    "<Keyboard>/w")
-                .With("Down",  "<Keyboard>/s")
-                .With("Left",  "<Keyboard>/a")
-                .With("Right", "<Keyboard>/d");
-            _moveAction.AddCompositeBinding("2DVector")
-                .With("Up",    "<Gamepad>/leftStick/up")
-                .With("Down",  "<Gamepad>/leftStick/down")
-                .With("Left",  "<Gamepad>/leftStick/left")
-                .With("Right", "<Gamepad>/leftStick/right");
+            // Project-wide Input Actions 연결
+            if (InputSystem.actions != null)
+            {
+                _moveAction = InputSystem.actions.FindAction("Player/Move");
+                _attackAction = InputSystem.actions.FindAction("Player/Attack");
+                _jumpAction = InputSystem.actions.FindAction("Player/Jump");
+            }
+            else
+            {
+                Debug.LogError("Project-wide Input Actions asset is not assigned under Project Settings.");
+            }
 
-            // 공격 입력 바인딩
-            _attackAction = new InputAction("Attack", binding: "<Mouse>/leftButton");
-            _attackAction.AddBinding("<Gamepad>/buttonWest");
-            _attackAction.performed += ctx => OnAttack();
-
-            // 점프 입력 바인딩 (스페이스바 및 게임패드 South 버튼)
-            _jumpAction = new InputAction("Jump", binding: "<Keyboard>/space");
-            _jumpAction.AddBinding("<Gamepad>/buttonSouth");
+            // 게임 시작 즉시 무기(칼) 비활성화 처리 (둥둥 떠있는 버그 방지)
+            if (_weaponSpriteRenderer != null)
+            {
+                _weaponSpriteRenderer.enabled = false;
+            }
         }
 
         private void OnEnable()
         {
-            _moveAction?.Enable();
-            _attackAction?.Enable();
-            _jumpAction?.Enable();
+            if (_attackAction != null)
+            {
+                _attackAction.performed += OnAttackPerformed;
+            }
         }
 
         private void OnDisable()
         {
-            _moveAction?.Disable();
-            _attackAction?.Disable();
-            _jumpAction?.Disable();
+            if (_attackAction != null)
+            {
+                _attackAction.performed -= OnAttackPerformed;
+            }
+        }
+
+        private void OnAttackPerformed(InputAction.CallbackContext context)
+        {
+            OnAttack();
         }
 
         private void Update()
         {
             _moveInput = _moveAction != null ? _moveAction.ReadValue<Vector2>() : Vector2.zero;
             
-            // 공격 타이머 완료 검사
+            // 공격 타이머 완료 검사 및 원래 보던 방향 복귀
             if (_isAttacking && Time.time >= _attackEndTime)
             {
                 _isAttacking = false;
-                _currentFrameIndex = 0;
-                _animationTimer = 0f;
+                _lastDirectionIndex = _preAttackDirectionIndex; // 회전 복구
             }
 
             MovePlayer();
             UpdateAnimation();
+            UpdateWeaponPlacement();
         }
 
         private void MovePlayer()
@@ -137,13 +151,10 @@ namespace ProjectAdventure
                 if (_jumpAction != null && _jumpAction.triggered && !_isAttacking)
                 {
                     _velocity.y = Mathf.Sqrt(_jumpHeight * 2.0f * _gravity);
-                    _currentFrameIndex = 0; // 점프 모션 첫 프레임부터 재생 유도
-                    _animationTimer = 0f;
                 }
             }
             else
             {
-                // 공중 상태에서는 중력 가속도 적용
                 _velocity.y -= _gravity * Time.deltaTime;
             }
 
@@ -166,140 +177,163 @@ namespace ProjectAdventure
             if (_isAttacking) return;
 
             _isAttacking = true;
-            _currentFrameIndex = 0;
-            _animationTimer = 0f;
+            _animator.speed = 1f;
 
-            // 베기 애니메이션은 총 5프레임이므로 총 소요시간 계산
-            _attackEndTime = Time.time + (_attackFrameRate * 5f);
+            // 공격 개시 전 바라보던 본래 방향 백업
+            _preAttackDirectionIndex = _lastDirectionIndex;
+
+            // 공격 모션의 방향성 결정 및 애니메이터 실행
+            int attackStateHash = HashSlashDownRight;
+
+            switch (_lastDirectionIndex)
+            {
+                case 4: // N
+                    attackStateHash = HashSlashUpRight;
+                    break;
+                case 5: // NW
+                case 6: // W
+                    attackStateHash = HashSlashUpLeft;
+                    break;
+                case 1: // SE
+                case 2: // E
+                case 3: // NE
+                    attackStateHash = HashSlashDownRight;
+                    break;
+                case 0: // S
+                case 7: // SW
+                    attackStateHash = HashSlashDownLeft;
+                    break;
+            }
+
+            if (_animator != null)
+            {
+                _animator.speed = 1f;
+                _animator.Play(attackStateHash, 0, 0f);
+            }
+
+            if (_spriteRenderer != null)
+            {
+                _spriteRenderer.flipX = false; // 이미지 자체로 분할 제작되었으므로 flipX 비활성화
+            }
+
+            _attackEndTime = Time.time + _attackDuration;
         }
 
         private void UpdateAnimation()
         {
-            if (_spriteRenderer == null) return;
+            if (_animator == null) return;
 
-            Sprite[] activeFrames = null;
-            bool flipX = false;
-            float currentFrameRate = _walkFrameRate;
+            // 공격 애니메이션 도중에는 다른 애니메이션으로 상태 덮어쓰기 방지
+            if (_isAttacking) return;
+
             bool isGrounded = _characterController.isGrounded;
+            bool isMoving = _moveInput.sqrMagnitude > 0.01f;
 
-            if (_isAttacking)
+            if (isMoving)
             {
-                currentFrameRate = _attackFrameRate;
-                
-                // 공격 시 시선 방향에 기반한 4방향 베기(Slash) 애니메이션 매핑
-                switch (_lastDirectionIndex)
-                {
-                    case 0:
-                        activeFrames = _lastHorizontalFacingLeft ? _animSlashDownLeft : _animSlashDownRight;
-                        break;
-                    case 4:
-                        activeFrames = _lastHorizontalFacingLeft ? _animSlashUpLeft : _animSlashUpRight;
-                        break;
-                    case 1:
-                    case 2:
-                    case 3:
-                        activeFrames = (_lastDirectionIndex == 3) ? _animSlashUpRight : _animSlashDownRight;
-                        break;
-                    case 5:
-                    case 6:
-                    case 7:
-                        activeFrames = (_lastDirectionIndex == 5) ? _animSlashUpLeft : _animSlashDownLeft;
-                        break;
-                }
+                // 이동 방향 변경
+                float angle = Mathf.Atan2(_moveInput.y, _moveInput.x) * Mathf.Rad2Deg;
+                float adjusted = (angle + 90f + 360f) % 360f;
+                int dir = Mathf.RoundToInt(adjusted / 45f) % 8;
+                _lastDirectionIndex = dir;
+
+                // 최근 횡방향 기억
+                if (dir == 2 || dir == 1 || dir == 3) _lastHorizontalFacingLeft = false;
+                else if (dir == 6 || dir == 5 || dir == 7) _lastHorizontalFacingLeft = true;
             }
-            else if (!isGrounded)
-            {
-                // 공중 상태(점프)일 때는 구르기(Roll) 애니메이션 적용
-                currentFrameRate = _walkFrameRate;
 
-                // 점프 중에도 방향 키를 누르면 시선 방향 변경
-                bool isMoving = _moveInput.sqrMagnitude > 0.01f;
-                if (isMoving)
-                {
-                    float angle = Mathf.Atan2(_moveInput.y, _moveInput.x) * Mathf.Rad2Deg;
-                    float adjusted = (angle + 90f + 360f) % 360f;
-                    int dir = Mathf.RoundToInt(adjusted / 45f) % 8;
-                    _lastDirectionIndex = dir;
-                }
+            if (!isGrounded)
+            {
+                // 1. 공중 상태 (점프) ➔ 구르기(Roll) 애니메이션 8방향 매핑
+                _animator.speed = 1f;
+                int rollStateHash = HashRollDown;
 
                 switch (_lastDirectionIndex)
                 {
-                    case 0: activeFrames = _animRollS;  break;
-                    case 1: activeFrames = _animRollSE; break;
-                    case 2: activeFrames = _animRollE;  break;
-                    case 3: activeFrames = _animRollNE; break;
-                    case 4: activeFrames = _animRollN;  break;
-                    case 5: activeFrames = _animRollNW; break;
-                    case 6: activeFrames = _animRollW;  break;
-                    case 7: activeFrames = _animRollSW; break;
+                    case 0: rollStateHash = HashRollDown; break;
+                    case 1: rollStateHash = HashRollDownRight; break;
+                    case 2: rollStateHash = HashRollRight; break;
+                    case 3: rollStateHash = HashRollUpRight; break;
+                    case 4: rollStateHash = HashRollUp; break;
+                    case 5: rollStateHash = HashRollUpLeft; break;
+                    case 6: rollStateHash = HashRollLeft; break;
+                    case 7: rollStateHash = HashRollDownLeft; break;
                 }
+
+                _animator.Play(rollStateHash);
+                if (_spriteRenderer != null) _spriteRenderer.flipX = false;
             }
             else
             {
-                // 지상 걷기 / 대기 애니메이션 제어
-                bool isMoving = _moveInput.sqrMagnitude > 0.01f;
-
+                // 2. 지상 상태 (걷기 및 대기)
                 if (isMoving)
                 {
-                    float angle = Mathf.Atan2(_moveInput.y, _moveInput.x) * Mathf.Rad2Deg;
-                    float adjusted = (angle + 90f + 360f) % 360f;
-                    int dir = Mathf.RoundToInt(adjusted / 45f) % 8;
-                    _lastDirectionIndex = dir;
+                    _animator.speed = 1f;
+                    int walkStateHash = HashWalkDown;
 
-                    if (dir == 2 || dir == 1 || dir == 3) _lastHorizontalFacingLeft = false;
-                    else if (dir == 6 || dir == 5 || dir == 7) _lastHorizontalFacingLeft = true;
-
-                    switch (dir)
+                    switch (_lastDirectionIndex)
                     {
-                        case 0: activeFrames = _animWalkS;  break;
-                        case 1: activeFrames = _animWalkSE; break;
-                        case 2: activeFrames = _animWalkE;  break;
-                        case 3: activeFrames = _animWalkNE; break;
-                        case 4: activeFrames = _animWalkN;  break;
-                        case 5: activeFrames = _animWalkNW; break;
-                        case 6: activeFrames = _animWalkW;  break;
-                        case 7: activeFrames = _animWalkSW; break;
+                        case 0: walkStateHash = HashWalkDown; break;
+                        case 1: walkStateHash = HashWalkDownRight; break;
+                        case 2: walkStateHash = HashWalkRight; break;
+                        case 3: walkStateHash = HashWalkUpRight; break;
+                        case 4: walkStateHash = HashWalkUp; break;
+                        case 5: walkStateHash = HashWalkUpLeft; break;
+                        case 6: walkStateHash = HashWalkLeft; break;
+                        case 7: walkStateHash = HashWalkDownLeft; break;
                     }
+
+                    _animator.Play(walkStateHash);
                 }
                 else
                 {
-                    // 대기 상태 고정
-                    Sprite[] standFrames = null;
+                    // 대기 상태 ➔ 해당하는 방향 걷기 애니메이션의 0번째 프레임 상태에서 멈춤(speed = 0)
+                    int idleStateHash = HashWalkDown;
+
                     switch (_lastDirectionIndex)
                     {
-                        case 0: standFrames = _animWalkS;  break;
-                        case 1: standFrames = _animWalkSE; break;
-                        case 2: standFrames = _animWalkE;  break;
-                        case 3: standFrames = _animWalkNE; break;
-                        case 4: standFrames = _animWalkN;  break;
-                        case 5: standFrames = _animWalkNW; break;
-                        case 6: standFrames = _animWalkW;  break;
-                        case 7: standFrames = _animWalkSW; break;
+                        case 0: idleStateHash = HashWalkDown; break;
+                        case 1: idleStateHash = HashWalkDownRight; break;
+                        case 2: idleStateHash = HashWalkRight; break;
+                        case 3: idleStateHash = HashWalkUpRight; break;
+                        case 4: idleStateHash = HashWalkUp; break;
+                        case 5: idleStateHash = HashWalkUpLeft; break;
+                        case 6: idleStateHash = HashWalkLeft; break;
+                        case 7: idleStateHash = HashWalkDownLeft; break;
                     }
 
-                    if (standFrames != null && standFrames.Length > 0)
-                    {
-                        _spriteRenderer.sprite = standFrames[0];
-                    }
-                    _spriteRenderer.flipX = false;
-                    return;
+                    _animator.Play(idleStateHash, 0, 0f);
+                    _animator.speed = 0f;
                 }
-            }
 
-            // 프레임 애니메이팅 처리
-            if (activeFrames != null && activeFrames.Length > 0)
+                if (_spriteRenderer != null) _spriteRenderer.flipX = false;
+            }
+        }
+
+        private void UpdateWeaponPlacement()
+        {
+            if (_weaponSpriteRenderer == null) return;
+
+            // 1. 공격 중이 아닐 때는 무기 스프라이트 숨김
+            if (!_isAttacking)
             {
-                _animationTimer += Time.deltaTime;
-                if (_animationTimer >= currentFrameRate)
-                {
-                    _animationTimer -= currentFrameRate;
-                    _currentFrameIndex = (_currentFrameIndex + 1) % activeFrames.Length;
-                }
-
-                _currentFrameIndex %= activeFrames.Length;
-                _spriteRenderer.sprite = activeFrames[_currentFrameIndex];
-                _spriteRenderer.flipX = flipX;
+                _weaponSpriteRenderer.enabled = false;
+                return;
             }
+
+            // 2. 공격 동작 중에만 활성화
+            _weaponSpriteRenderer.enabled = true;
+
+            int baseOrder = _spriteRenderer != null ? _spriteRenderer.sortingOrder : 0;
+            int orderOffset = 1;
+
+            // 위로 베는 방향(N: 4, NW: 5, W: 6)일 때는 무기가 몸 뒤로 가도록 렌더링 순서 변경
+            if (_lastDirectionIndex == 4 || _lastDirectionIndex == 5 || _lastDirectionIndex == 6)
+            {
+                orderOffset = -1;
+            }
+            
+            _weaponSpriteRenderer.sortingOrder = baseOrder + orderOffset;
         }
     }
 }
